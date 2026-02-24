@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WeatherWise Elite National</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+
+<style>
+body{margin:0;background:#0f0f1a;color:white;font-family:arial;}
+#map{height:100vh;}
+.panel{
+position:absolute;
+top:10px;
+left:10px;
+background:rgba(0,0,0,0.75);
+padding:10px;
+border-radius:8px;
+z-index:1000;
+display:flex;
+flex-direction:column;
+gap:6px;
+}
+select{
+background:#1f1f35;
+color:white;
+border:none;
+padding:6px;
+border-radius:5px;
+}
+</style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<div class="panel">
+<select id="radarSelect"></select>
+
+<select id="productSelect">
+<option value="REF0">Reflectivity</option>
+<option value="VEL0">Base Velocity</option>
+<option value="SRV0">Storm Relative Velocity</option>
+<option value="CC0">Correlation Coefficient</option>
+<option value="ZDR0">Differential Reflectivity</option>
+</select>
+</div>
+
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
+<script>
+const map = L.map('map').setView([39,-98],5);
+
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+
+let radarLayer;
+
+const radarSelect = document.getElementById("radarSelect");
+const productSelect = document.getElementById("productSelect");
+
+async function loadRadarList(){
+    const response = await fetch("https://raw.githubusercontent.com/aaronpk/nexrad-sites/master/sites.json");
+    const data = await response.json();
+
+    data.forEach(site=>{
+        const opt = document.createElement("option");
+        opt.value = site.id;
+        opt.textContent = site.id + " - " + site.name;
+        radarSelect.appendChild(opt);
+    });
+
+    radarSelect.value = "KOAX";
+    loadRadar();
+}
+
+function loadRadar(){
+    const radar = radarSelect.value;
+    const product = productSelect.value;
+
+    fetch(`/update/${radar}/${product}`);
+
+    if(radarLayer) map.removeLayer(radarLayer);
+
+    radarLayer = L.imageOverlay(
+        `/tiles/${radar}/${product}/latest.png?${Date.now()}`,
+        [[20,-130],[55,-60]]
+    ).addTo(map);
+
+    updateHash();
+}
+
+function updateHash(){
+    const c = map.getCenter();
+    const z = map.getZoom();
+    location.hash = `map=${z}/${c.lat.toFixed(2)}/${c.lng.toFixed(2)}&rt=${radarSelect.value}&rp=${productSelect.value}`;
+}
+
+radarSelect.onchange = loadRadar;
+productSelect.onchange = loadRadar;
+map.on("moveend", updateHash);
+
+loadRadarList();
+</script>
+
+</body>
+</html>
