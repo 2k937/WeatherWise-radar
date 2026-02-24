@@ -4,3 +4,4 @@ botocore
 pyart
 matplotlib
 numpy
+netcdf4
