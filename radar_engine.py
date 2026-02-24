@@ -1,61 +1,59 @@
-import os
 import sys
-import boto3
-import pyart
+import os
 import matplotlib.pyplot as plt
-from datetime import datetime
+import pyart
+import boto3
 from botocore import UNSIGNED
 from botocore.client import Config
+import numpy as np
 
 AWS_BUCKET = "noaa-nexrad-level2"
-OUTPUT_DIR = "tiles"
 
-s3 = boto3.client('s3', config=Config(signature_version=UNSIGNED))
-
-def get_latest_file(radar):
-    today = datetime.utcnow()
-    prefix = f"{today.year}/{today.month:02d}/{today.day:02d}/{radar}/"
-    response = s3.list_objects_v2(Bucket=AWS_BUCKET, Prefix=prefix)
-    files = [obj['Key'] for obj in response.get('Contents', []) if obj['Key'].endswith(".gz")]
+def download_latest_radar(radar):
+    """Download latest Level II file from AWS S3"""
+    s3 = boto3.client('s3', config=Config(signature_version=UNSIGNED))
+    # List recent files
+    response = s3.list_objects_v2(Bucket=AWS_BUCKET, Prefix=radar+'/')
+    files = [f['Key'] for f in response.get('Contents', []) if f['Key'].endswith('.gz')]
     if not files:
-        return None
-    return sorted(files)[-1]
-
-def download_file(key):
-    local_path = key.split("/")[-1]
-    s3.download_file(AWS_BUCKET, key, local_path)
+        raise Exception("No radar files found for "+radar)
+    latest_file = sorted(files)[-1]
+    local_path = os.path.join("tiles", latest_file.split('/')[-1])
+    if not os.path.exists("tiles"):
+        os.makedirs("tiles")
+    s3.download_file(AWS_BUCKET, latest_file, local_path)
     return local_path
 
-def render_product(file_path, radar, product):
-    radar_data = pyart.io.read_nexrad_archive(file_path)
+def render_radar(file_path, radar, product, output_file):
+    """Render radar reflectivity or velocity to PNG"""
+    radar_data = pyart.io.read(file_path)
+    plt.figure(figsize=(5,5))
+    
+    if product.upper() == "REF0":
+        display = pyart.graph.RadarDisplay(radar_data)
+        display.plot('reflectivity', 0, colorbar_label='dBZ', cmap='pyart_NWSRef')
+    elif product.upper() == "VEL0":
+        display = pyart.graph.RadarDisplay(radar_data)
+        display.plot('velocity', 0, colorbar_label='m/s', cmap='pyart_NWSVel')
+    else:
+        # fallback to reflectivity
+        display = pyart.graph.RadarDisplay(radar_data)
+        display.plot('reflectivity', 0, colorbar_label='dBZ', cmap='pyart_NWSRef')
 
-    field_map = {
-        "REF0": "reflectivity",
-        "VEL0": "velocity",
-        "SRV0": "velocity",
-        "CC0": "cross_correlation_ratio",
-        "ZDR0": "differential_reflectivity"
-    }
-
-    field = field_map.get(product, "reflectivity")
-
-    display = pyart.graph.RadarDisplay(radar_data)
-    fig = plt.figure(figsize=(8,8))
-    display.plot_ppi(field, sweep=0)
-
-    radar_dir = os.path.join(OUTPUT_DIR, radar, product)
-    os.makedirs(radar_dir, exist_ok=True)
-
-    output_path = os.path.join(radar_dir, "latest.png")
-    plt.savefig(output_path)
-    plt.close(fig)
-
-    os.remove(file_path)
+    plt.title(f"{radar} {product}")
+    plt.axis("off")
+    plt.savefig(os.path.join("tiles", output_file))
+    plt.close()
+    print(f"Saved {output_file}")
 
 if __name__ == "__main__":
+    if len(sys.argv) < 4:
+        print("Usage: python radar_engine.py RADAR PRODUCT OUTPUT_FILE")
+        sys.exit(1)
+    
     radar = sys.argv[1]
     product = sys.argv[2]
-    key = get_latest_file(radar)
-    if key:
-        file_path = download_file(key)
-        render_product(file_path, radar, product)
+    output_file = sys.argv[3]
+
+    local_file = download_latest_radar(radar)
+    render_radar(local_file, radar, product, output_file)
