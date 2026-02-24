@@ -7,12 +7,10 @@ TILES_DIR = "tiles"
 
 @app.route("/tiles/<filename>")
 def serve_tile(filename):
-    """Serve radar image from tiles folder"""
     return send_from_directory(TILES_DIR, filename)
 
 @app.route("/update/<radar>/<product>")
 def update_radar(radar, product):
-    """Run radar_engine.py to generate latest tile"""
     output_file = f"{radar}_{product}.png"
     try:
         subprocess.run(["python3", "radar_engine.py", radar, product, output_file], check=True)
